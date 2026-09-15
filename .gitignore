@@ -1,0 +1,57 @@
+# =========================
+# Python
+# =========================
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# StampedeGuard generated files
+# =========================
+backend/uploads/
+backend/processed/
+backend/videos/
+
+# =========================
+# ML Model Weights
+# =========================
+*.pt
+*.onnx
+
+# =========================
+# Generated ML datasets
+# =========================
+backend/ml/dataset/*.csv
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Frontend / Node
+# =========================
+node_modules/
+frontend/node_modules/
+frontend/dist/
