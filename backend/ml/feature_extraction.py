@@ -4,6 +4,7 @@ from pathlib import Path
 from ml.features.basic_features import calculate_basic_features
 from ml.features.temporal_features import calculate_temporal_features
 from ml.features.directional_features import calculate_directional_features
+from ml.features.tracking_cleaning import detect_tracking_anomalies
 
 
 # ============================================================
@@ -29,7 +30,6 @@ def extract_features(input_file):
 
     print("Input file:", input_file)
 
-
     # ========================================================
     # LOAD RAW TRACKING DATA
     # ========================================================
@@ -40,7 +40,6 @@ def extract_features(input_file):
 
     print("Total rows:", len(df))
     print("Total frames:", df["frame"].nunique())
-
 
     # ========================================================
     # CONVERT NUMERIC COLUMNS
@@ -69,7 +68,6 @@ def extract_features(input_file):
             errors="coerce"
         )
 
-
     # ========================================================
     # CHECK MISSING VALUES
     # ========================================================
@@ -77,7 +75,6 @@ def extract_features(input_file):
     print("\n===== MISSING VALUES AFTER CONVERSION =====")
 
     print(df.isna().sum())
-
 
     # ========================================================
     # CHECK DIRECTIONS
@@ -96,7 +93,6 @@ def extract_features(input_file):
         df["direction"].dtype
     )
 
-
     # ========================================================
     # REMOVE INVALID ROWS
     # ========================================================
@@ -113,14 +109,61 @@ def extract_features(input_file):
             "direction",
             "density",
         ]
-    )
+    ).copy()
 
-
-    print("\n===== AFTER CLEANING =====")
+    print("\n===== AFTER BASIC CLEANING =====")
 
     print("Rows remaining:", len(df))
     print("Frames remaining:", df["frame"].nunique())
 
+    # ========================================================
+    # TRACKING ANOMALY DETECTION
+    # ========================================================
+
+    print("\n===== TRACKING QUALITY =====")
+
+    df = detect_tracking_anomalies(df)
+
+    anomaly_count = int(
+        df["tracking_anomaly"].sum()
+    )
+
+    anomaly_percentage = (
+        anomaly_count / len(df) * 100
+        if len(df) > 0
+        else 0
+    )
+
+    print(
+        "Tracking anomalies:",
+        anomaly_count
+    )
+
+    print(
+        "Tracking anomaly percentage:",
+        round(anomaly_percentage, 2),
+        "%"
+    )
+
+    # ========================================================
+    # CLEAN MOVEMENT DATA
+    # ========================================================
+    #
+    # Keep ALL detections in df for people_count.
+    #
+    # Exclude suspicious tracking observations from
+    # movement-related statistics.
+    #
+    # ========================================================
+
+    movement_df = df[
+        ~df["tracking_anomaly"]
+    ].copy()
+
+    print(
+        "Movement-valid rows:",
+        len(movement_df)
+    )
 
     # ========================================================
     # BASIC FEATURES
@@ -128,13 +171,15 @@ def extract_features(input_file):
 
     print("\n===== BASIC FEATURES =====")
 
-    basic_features = calculate_basic_features(df)
+    basic_features = calculate_basic_features(
+        df,
+        movement_df
+    )
 
     print(
         "Basic feature columns:",
         len(basic_features.columns)
     )
-
 
     # ========================================================
     # TEMPORAL FEATURES
@@ -149,20 +194,20 @@ def extract_features(input_file):
         len(temporal_features.columns)
     )
 
-
     # ========================================================
     # DIRECTIONAL FEATURES
     # ========================================================
 
     print("\n===== DIRECTIONAL FEATURES =====")
 
-    directional_features = calculate_directional_features(df)
+    directional_features = calculate_directional_features(
+        movement_df
+    )
 
     print(
         "Directional feature columns:",
         len(directional_features.columns)
     )
-
 
     # ========================================================
     # MERGE FEATURES
@@ -180,7 +225,6 @@ def extract_features(input_file):
         how="left"
     )
 
-
     # ========================================================
     # ADD TIMESTAMP
     # ========================================================
@@ -197,13 +241,11 @@ def extract_features(input_file):
         how="left"
     )
 
-
     # ========================================================
     # HANDLE MISSING VALUES
     # ========================================================
 
     features = features.fillna(0)
-
 
     # ========================================================
     # FINAL COLUMN ORDER
@@ -245,7 +287,6 @@ def extract_features(input_file):
         ]
     ]
 
-
     # ========================================================
     # OUTPUT FILE
     # ========================================================
@@ -260,7 +301,6 @@ def extract_features(input_file):
         f"{video_name}_features.csv"
     )
 
-
     # ========================================================
     # SAVE
     # ========================================================
@@ -269,7 +309,6 @@ def extract_features(input_file):
         output_file,
         index=False
     )
-
 
     # ========================================================
     # FINAL INFORMATION
@@ -343,7 +382,6 @@ else:
         "\nTotal datasets:",
         len(tracking_files)
     )
-
 
     # ========================================================
     # PROCESS ALL VIDEOS

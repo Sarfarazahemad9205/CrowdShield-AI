@@ -108,13 +108,14 @@ def process_video(input_path: Path, output_path: Path):
 
             # Run YOLO tracking
             results = model.track(
-                frame,
-                persist=True,
-                classes=[0],
-                tracker="bytetrack.yaml",
-                verbose=False
+             frame,
+             persist=True,
+             classes=[0],
+              tracker="bytetrack.yaml",
+              imgsz=1280,
+            conf=0.15,
+              verbose=False 
             )
-
             # Get tracking result
             result = results[0]
 

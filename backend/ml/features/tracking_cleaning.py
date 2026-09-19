@@ -7,8 +7,12 @@ def detect_tracking_anomalies(df):
     Detect suspicious jumps in individual person trajectories.
 
     The raw tracking data is not modified or deleted.
-    Instead, suspicious observations are marked with
+    Suspicious observations are marked with
     the 'tracking_anomaly' column.
+
+    A movement transition is considered suspicious if:
+    1. It exceeds the robust per-person IQR threshold, OR
+    2. Its displacement exceeds 100 pixels in one frame transition.
     """
 
     data = df.copy()
@@ -50,11 +54,6 @@ def detect_tracking_anomalies(df):
     )
 
     # Calculate robust statistics for each person
-    median_speed = (
-        data.groupby("person_id")["trajectory_speed"]
-        .transform("median")
-    )
-
     q1 = (
         data.groupby("person_id")["trajectory_speed"]
         .transform(lambda x: x.quantile(0.25))
@@ -67,12 +66,23 @@ def detect_tracking_anomalies(df):
 
     iqr = q3 - q1
 
-    # Upper limit for unusually large movement
+    # Robust upper limit
     upper_limit = q3 + 3 * iqr
 
-    # Detect suspicious movement
-    data["tracking_anomaly"] = (
+    # Existing statistical anomaly rule
+    statistical_anomaly = (
         data["trajectory_speed"] > upper_limit
+    )
+
+    # Hard movement-quality gate
+    displacement_anomaly = (
+        data["trajectory_displacement"] > 100
+    )
+
+    # Either condition marks the transition as suspicious
+    data["tracking_anomaly"] = (
+        statistical_anomaly |
+        displacement_anomaly
     )
 
     # First observation of each person cannot be compared
