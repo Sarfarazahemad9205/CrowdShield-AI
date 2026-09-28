@@ -55,3 +55,25 @@ Thumbs.db
 node_modules/
 frontend/node_modules/
 frontend/dist/
+# Generated ML dataset outputs
+backend/ml/dataset/behavioral/*.csv
+backend/ml/dataset/labeled/*.csv
+backend/ml/dataset/normalized/*.csv
+backend/ml/dataset/windowed/*.csv
+backend/ml/dataset/anomaly/*.csv
+backend/ml/dataset/reliability/*.csv
+backend/ml/dataset/risk/*.csv
+
+# Ignore all generated ML dataset files
+backend/ml/dataset/*.csv
+backend/ml/dataset/behavioral/*.csv
+backend/ml/dataset/labeled/*.csv
+backend/ml/dataset/normalized/*.csv
+backend/ml/dataset/windowed/*.csv
+backend/ml/dataset/anomaly/*.csv
+backend/ml/dataset/reliability/*.csv
+backend/ml/dataset/risk/*.csv
+
+# Keep the normal reference required by live inference
+!backend/ml/dataset/reference/
+!backend/ml/dataset/reference/normal_reference_stats.csv

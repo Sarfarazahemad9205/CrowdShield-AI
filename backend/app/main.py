@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import shutil
@@ -15,6 +16,22 @@ app = FastAPI(
     title="StampedeGuard AI",
     description="AI-Based Crowd Monitoring and Stampede Risk Early-Warning System",
     version="1.0.0"
+)
+
+
+# ============================================================
+# CORS CONFIGURATION
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -167,15 +184,11 @@ async def upload_video(
     # --------------------------------------------------------
 
     return {
+        "message": "Video uploaded successfully",
 
-        "message":
-            "Video uploaded successfully",
+        "filename": filename,
 
-        "filename":
-            filename,
-
-        "video_url":
-            f"/uploads/{filename}"
+        "video_url": f"/uploads/{filename}"
     }
 
 
