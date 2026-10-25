@@ -1,0 +1,5 @@
+import { Activity, ArrowRight, BarChart3, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
+import PageHeading from "../components/PageHeading";
+const items=[[Activity,"Spot risk sooner","Surface unusual density and movement patterns while there’s still time to respond."],[BarChart3,"Make sense of movement","Turn video footage into clear analysis without hours of manual review."],[ShieldCheck,"Respond with confidence","Give operations teams understandable risk assessments to guide the next action."]];
+export default function BenefitsPage(){return <div className="inner-page"><PageHeading eyebrow="Benefits" title="Awareness that moves" accent="at the speed of people." description="Practical crowd intelligence helps teams see movement clearly and make informed decisions."/><div className="page-card-grid">{items.map(([Icon,title,text],i)=><article className="page-card" key={title}><span className="benefit-icon"><Icon size={19}/></span><span className="item-number">0{i+1}</span><h2>{title}</h2><p>{text}</p></article>)}</div><Link className="text-link" to="/video-analysis">Try video analysis <ArrowRight size={15}/></Link></div>}

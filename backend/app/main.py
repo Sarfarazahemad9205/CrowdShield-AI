@@ -1,10 +1,16 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+import csv
+import os
 from pathlib import Path
 import shutil
+from typing import Literal
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.video_processor import process_video
+from app.processing_options import get_processing_options
+from app.model_runtime import yolo_runtime
 from ml.inference.live_risk_engine import analyze_tracking_csv
 
 
@@ -23,11 +29,18 @@ app = FastAPI(
 # CORS CONFIGURATION
 # ============================================================
 
+configured_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        *configured_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -39,8 +52,9 @@ app.add_middleware(
 # DIRECTORIES
 # ============================================================
 
-UPLOAD_DIR = Path("uploads")
-PROCESSED_DIR = Path("processed")
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+UPLOAD_DIR = BACKEND_DIR / "uploads"
+PROCESSED_DIR = BACKEND_DIR / "processed"
 
 UPLOAD_DIR.mkdir(
     parents=True,
@@ -71,13 +85,13 @@ ALLOWED_EXTENSIONS = {
 
 app.mount(
     "/uploads",
-    StaticFiles(directory="uploads"),
+    StaticFiles(directory=str(UPLOAD_DIR)),
     name="uploads"
 )
 
 app.mount(
     "/processed",
-    StaticFiles(directory="processed"),
+    StaticFiles(directory=str(PROCESSED_DIR)),
     name="processed"
 )
 
@@ -198,16 +212,28 @@ async def upload_video(
 
 @app.post("/process-video/{filename}")
 def process_uploaded_video(
-    filename: str
+    filename: str,
+    profile: Literal["fast", "balanced", "accurate"] = Query(
+        default="balanced",
+        description="fast samples every other frame; accurate processes all frames at higher resolution",
+    ),
+    annotate: bool = Query(
+        default=False,
+        description="Set true to render and encode a downloadable annotated MP4",
+    ),
 ):
 
     # ========================================================
     # 1. FIND UPLOADED VIDEO
     # ========================================================
 
+    safe_filename = Path(filename).name
+    if safe_filename != filename:
+        raise HTTPException(status_code=400, detail="Invalid video filename")
+
     input_path = (
         UPLOAD_DIR /
-        filename
+        safe_filename
     )
 
     if not input_path.exists():
@@ -240,9 +266,13 @@ def process_uploaded_video(
 
     try:
 
+        options = get_processing_options(profile)
+
         process_video(
             input_path,
-            output_path
+            output_path,
+            options=options,
+            annotate=annotate,
         )
 
     except Exception as e:
@@ -297,12 +327,24 @@ def process_uploaded_video(
     # ========================================================
 
     try:
+        with tracking_csv.open("r", newline="", encoding="utf-8") as csv_file:
+            rows = csv.reader(csv_file)
+            next(rows, None)  # header
+            contains_detections = next(rows, None) is not None
 
-        risk_result = (
-            analyze_tracking_csv(
-                tracking_csv
-            )
-        )
+        if contains_detections:
+            risk_result = analyze_tracking_csv(tracking_csv)
+        else:
+            risk_result = {
+                "risk_state": "TRACKING_UNRELIABLE",
+                "risk_reason": "No people could be tracked in this video. Try Slow mode, improve the camera view, or use a clearer clip.",
+                "movement_intensity_index": 0.0,
+                "tracking_reliability": 0.0,
+                "tracking_quality": "UNRELIABLE",
+                "window_id": 0,
+                "total_windows": 0,
+                "windows": [],
+            }
 
     except Exception as e:
 
@@ -325,10 +367,18 @@ def process_uploaded_video(
             "Video processed and risk analysis completed",
 
         "filename":
-            output_filename,
+            output_filename if annotate else None,
 
         "video_url":
-            f"/processed/{output_filename}",
+            f"/processed/{output_filename}" if annotate else None,
+
+        "processing": {
+            "profile": profile,
+            "image_size": options.image_size,
+            "frame_stride": options.frame_stride,
+            "device": f"cuda:{yolo_runtime.device}" if yolo_runtime.device != "cpu" else "cpu",
+            "annotated_video": annotate,
+        },
 
         "tracking_csv":
             str(tracking_csv),

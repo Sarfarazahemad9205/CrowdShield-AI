@@ -3,14 +3,23 @@ import subprocess
 import csv
 import math
 from pathlib import Path
-from ultralytics import YOLO
+from app.model_runtime import yolo_runtime
+from app.processing_options import VideoProcessingOptions
 
 
-# Load YOLO model
-model = YOLO("yolo11n.pt")
-
-
-def process_video(input_path: Path, output_path: Path):
+@yolo_runtime.serialized
+def process_video(
+    input_path: Path,
+    output_path: Path,
+    *,
+    options: VideoProcessingOptions | None = None,
+    annotate: bool = True,
+):
+    # Keep legacy dataset scripts on the previous accuracy settings. API callers
+    # pass a named profile explicitly.
+    options = options or VideoProcessingOptions(
+        profile="accurate", image_size=1280, frame_stride=1
+    )
 
     # Temporary file created by OpenCV
     raw_output_path = output_path.with_name(
@@ -46,16 +55,18 @@ def process_video(input_path: Path, output_path: Path):
     # Create temporary OpenCV output video
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
-    writer = cv2.VideoWriter(
-        str(raw_output_path),
-        fourcc,
-        fps,
-        (width, height)
-    )
+    writer = None
+    if annotate:
+        writer = cv2.VideoWriter(
+            str(raw_output_path), fourcc, fps, (width, height)
+        )
+        if not writer.isOpened():
+            cap.release()
+            raise ValueError("Could not create the output video.")
 
-    if not writer.isOpened():
-        cap.release()
-        raise ValueError("Could not create the output video.")
+    model = yolo_runtime.model
+    inference_device = yolo_runtime.device
+    use_half_precision = yolo_runtime.use_half_precision
 
     # Store previous position of each person
     previous_positions = {}
@@ -103,24 +114,33 @@ def process_video(input_path: Path, output_path: Path):
 
             frame_number += 1
 
+            # Preserve source timestamps and video duration while reducing the
+            # number of detector/tracker passes in the fast profile.
+            if (frame_number - 1) % options.frame_stride:
+                if writer is not None:
+                    writer.write(frame)
+                continue
+
             # Current timestamp
-            timestamp = frame_number / fps
+            timestamp = (frame_number - 1) / fps
 
             # Run YOLO tracking
             results = model.track(
-             frame,
-             persist=True,
-             classes=[0],
-              tracker="bytetrack.yaml",
-              imgsz=1280,
-            conf=0.15,
-              verbose=False 
+                frame,
+                persist=True,
+                classes=[0],
+                tracker="bytetrack.yaml",
+                imgsz=options.image_size,
+                conf=0.15,
+                device=inference_device,
+                half=use_half_precision,
+                verbose=False,
             )
             # Get tracking result
             result = results[0]
 
             # Copy original frame
-            annotated_frame = frame.copy()
+            annotated_frame = frame.copy() if writer is not None else None
 
             # Number of people currently detected
             people_count = 0
@@ -264,45 +284,44 @@ def process_video(input_path: Path, output_path: Path):
                         round(density, 8)
                     ])
 
-                    # Draw bounding box
-                    cv2.rectangle(
-                        annotated_frame,
-                        (x1, y1),
-                        (x2, y2),
-                        (255, 0, 0),
-                        2
-                    )
-
-                    # Draw tracking ID
-                    cv2.putText(
-                        annotated_frame,
-                        f"ID: {track_id}",
-                        (x1, max(y1 - 10, 20)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 0, 0),
-                        2
-                    )
+                    if annotated_frame is not None:
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                        cv2.putText(
+                            annotated_frame,
+                            f"ID: {track_id}",
+                            (x1, max(y1 - 10, 20)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (255, 0, 0),
+                            2,
+                        )
 
             # Display people count on video
-            cv2.putText(
-                annotated_frame,
-                f"People: {people_count}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2
-            )
+            if annotated_frame is not None:
+                cv2.putText(
+                    annotated_frame, f"People: {people_count}", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,
+                )
 
             # Write processed frame
-            writer.write(annotated_frame)
+            if writer is not None:
+                writer.write(annotated_frame)
 
     # Release resources
     cap.release()
-    writer.release()
+    if writer is not None:
+        writer.release()
 
     # Convert OpenCV video to browser-compatible H.264 MP4
+    if not annotate:
+        raw_output_path.unlink(missing_ok=True)
+        print(
+            f"Processed {frame_number} frames ({math.ceil(frame_number / options.frame_stride)} inferred) "
+            f"using {options.profile} profile on {inference_device}."
+        )
+        print(f"Tracking data: {csv_output_path}")
+        return None
+
     ffmpeg_command = [
         "ffmpeg",
         "-y",
@@ -335,5 +354,9 @@ def process_video(input_path: Path, output_path: Path):
 
     print(f"Processed video: {output_path}")
     print(f"Tracking data: {csv_output_path}")
+    print(
+        f"Inference profile: {options.profile}; image size: {options.image_size}; "
+        f"frame stride: {options.frame_stride}; device: {inference_device}"
+    )
 
     return output_path
